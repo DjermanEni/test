@@ -177,7 +177,14 @@ def parse_character_sheet(topic_url):
     if at:
         for q in at.find_all(["div"], class_=re.compile(r"quote-box|spoiler-box")):
             q.decompose()
-        ch["bio"] = at.get_text(separator="\n", strip=True)
+        # Удаляем встроенные стили/скрипты и BBCode-разметку [html]...[/html],
+        # иначе их текст попадает в сообщение бота как мусор
+        for tag in at.find_all(["style", "script"]):
+            tag.decompose()
+        bio_html = str(at)
+        bio_html = re.sub(r"\[/?html\]", "", bio_html)
+        clean_soup = BeautifulSoup(bio_html, "html.parser")
+        ch["bio"] = clean_soup.get_text(separator="\n", strip=True)
     else:
         for q in pc.find_all("blockquote"):
             q.decompose()
