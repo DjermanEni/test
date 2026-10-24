@@ -5,6 +5,7 @@ Telegram-бот для парсинга анкет персонажей с фо�
 Команда: /Char "Имя персонажа"
 """
 
+import os
 import re
 import time
 import logging
@@ -14,7 +15,9 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 # ======================== НАСТРОЙКИ ========================
-BOT_TOKEN = "8873475252:AAFZYZ1MJw7Xx0ghyq91-shHH_pWQF_VsV4"
+# Токен лучше задавать через переменную окружения BOT_TOKEN,
+# а не хранить прямо в коде.
+BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 FORUM_URL = "https://rwrd.rusff.me"
 FORUM_ID = 25
 CACHE_TTL = 3600
@@ -282,10 +285,18 @@ def get_active_topics():
 
 
 def split_message(text, max_len=4000):
+    """Режет текст на части не длиннее max_len (учитывая переносы строк)."""
     if len(text) <= max_len:
         return [text]
     parts, cur = [], ""
     for line in text.split('\n'):
+        # если одна строка длиннее лимита — режем её по символьным блокам
+        while len(line) > max_len:
+            if cur:
+                parts.append(cur)
+                cur = ""
+            parts.append(line[:max_len])
+            line = line[max_len:]
         if len(cur) + len(line) + 1 > max_len:
             if cur:
                 parts.append(cur)
@@ -456,6 +467,12 @@ async def help_cmd(update, ctx):
 
 
 def main():
+    if not BOT_TOKEN:
+        raise SystemExit(
+            "Ошибка: не задан токен бота.\n"
+            "Получите токен у @BotFather и задайте его через переменную окружения:\n"
+            '    export BOT_TOKEN="123456:ABC-DEF..."'
+        )
     logger.info("=" * 50)
     logger.info("Запуск RWRD Character Bot...")
     logger.info(f"Форум: {FORUM_URL}/viewforum.php?id={FORUM_ID}")
