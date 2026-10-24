@@ -231,18 +231,41 @@ def ensure_cache():
         update_characters_cache()
 
 
+def get_numbered_list():
+    """Список персонажей, отсортированный по алфавиту; каждому присвоен номер (1..N)."""
+    ensure_cache()
+    ordered = sorted(characters_cache.values(), key=lambda x: x.get("name", "").lower())
+    return ordered
+
+
 def search_character(q):
+    """Ищет персонажа по имени, позывному, номеру в /list или названию темы."""
     ensure_cache()
     ql = q.lower().strip()
+    # 1) Точное совпадение по имени
     for c in characters_cache.values():
         if c.get("name", "").lower() == ql:
             return c
+    # 2) Точное совпадение по позывному
+    for c in characters_cache.values():
+        if c.get("moniker", "").lower() == ql:
+            return c
+    # 3) Номер из списка /list (например "7" или "#7")
+    num_m = re.fullmatch(r"#?(\d+)", ql)
+    if num_m:
+        ordered = get_numbered_list()
+        idx = int(num_m.group(1))
+        if 1 <= idx <= len(ordered):
+            return ordered[idx - 1]
+    # 4) Частичное совпадение по имени
     for c in characters_cache.values():
         if ql in c.get("name", "").lower():
             return c
+    # 5) Частичное совпадение по позывному
     for c in characters_cache.values():
         if ql in c.get("moniker", "").lower():
             return c
+    # 6) Частичное совпадение по названию темы
     for c in characters_cache.values():
         if ql in c.get("topic_title", "").lower():
             return c
@@ -284,217 +307,3 @@ def get_active_topics():
             continue
         last_post_url = last_post_link.get("href", "")
         last_post_time = last_post_link.get_text(strip=True)
-        last_author_span = tcr.find("span", class_="byuser-username")
-        last_author = last_author_span.get_text(strip=True) if last_author_span else ""
-        topics.append({"title": topic_title, "topic_url": topic_url, "last_post_url": last_post_url, "last_post_time": last_post_time, "last_author": last_author})
-    logger.info(f"Найдено активных тем: {len(topics)}")
-    return topics
-
-
-def split_message(text, max_len=4000):
-    """Режет текст на части не длиннее max_len (учитывая переносы строк)."""
-    if len(text) <= max_len:
-        return [text]
-    parts, cur = [], ""
-    for line in text.split('\n'):
-        # если одна строка длиннее лимита — режем её по символьным блокам
-        while len(line) > max_len:
-            if cur:
-                parts.append(cur)
-                cur = ""
-            parts.append(line[:max_len])
-            line = line[max_len:]
-        if len(cur) + len(line) + 1 > max_len:
-            if cur:
-                parts.append(cur)
-            cur = line + '\n'
-        else:
-            cur += line + '\n'
-    if cur:
-        parts.append(cur)
-    return parts
-
-
-def fmt(ch):
-    if not ch:
-        return None
-    L = []
-    n = ch.get('name', 'Неизвестно')
-    L.append(f"📋 *{n}*")
-    if ch.get("moniker") and ch["moniker"] != n:
-        L.append(f"🏷 Позывной: _{ch['moniker']}_")
-    if ch.get("dob") and ch["dob"] != "Неизвестно":
-        L.append(f"📅 Дата рождения: {ch['dob']}")
-    if ch.get("occupation") and ch["occupation"] != "Неизвестно":
-        L.append(f"💼 Занятие: {ch['occupation']}")
-    if ch.get("loyalty") and ch["loyalty"] != "Неизвестно":
-        L.append(f"🤝 Лояльность: {ch['loyalty']}")
-    if ch.get("year"):
-        L.append(f"🕐 Таймлайн: {ch['year']}")
-    if ch.get("implants") and len(ch["implants"]) > 0:
-        L.append("")
-        L.append("🦾 *Импланты:*")
-        L.append(", ".join(ch["implants"]))
-    if ch.get("skills") and len(ch["skills"]) > 0:
-        L.append("")
-        L.append("⚡ *Навыки:*")
-        for s in ch["skills"]:
-            L.append(f"• {s}")
-    if ch.get("bio"):
-        L.append("")
-        L.append("📖 *Биография:*")
-        L.append(ch["bio"])
-    if ch.get("topic_url"):
-        L.append("")
-        L.append(f"🔗 [Открыть на форуме]({ch['topic_url']})")
-    return "\n".join(L)
-
-
-async def start_cmd(update, ctx):
-    await update.message.reply_text(
-        "Привет! Я бот-помощник участников CyberPunk Rewired. "
-        "Если ты не ковбой, я всё тебе расскажу: "
-        "Воспользуйся /help для получения списка команд"
-    )
-
-
-async def char_cmd(update, ctx):
-    if not ctx.args:
-        await update.message.reply_text("⚠️ Укажите имя. Пример: /char Leon Cross", parse_mode="Markdown")
-        return
-    q = " ".join(ctx.args).strip('"').strip("'").strip()
-    if not q:
-        await update.message.reply_text("⚠️ Имя не может быть пустым.")
-        return
-    sm = await update.message.reply_text(f"🔍 Ищу: *{q}*...\n_(может занять до 2 мин)_", parse_mode="Markdown")
-    try:
-        ch = search_character(q)
-        if ch:
-            msg = fmt(ch)
-            parts = split_message(msg)
-            await sm.edit_text(parts[0], parse_mode="Markdown", disable_web_page_preview=True)
-            for p in parts[1:]:
-                await update.message.reply_text(p, parse_mode="Markdown", disable_web_page_preview=True)
-        else:
-            await sm.edit_text(f"❌ Не найден: \"{q}\"\n\nЗагружено: {len(characters_cache)}\nИспользуйте /list", parse_mode="Markdown")
-    except Exception as e:
-        logger.error(f"Search error: {e}")
-        await sm.edit_text(f"⚠️ Ошибка. Загружено: {len(characters_cache)}")
-
-
-async def list_cmd(update, ctx):
-    sm = await update.message.reply_text("📋 Загружаю список...", parse_mode="Markdown")
-    try:
-        ensure_cache()
-        if not characters_cache:
-            await sm.edit_text("❌ Не удалось загрузить список.")
-            return
-        L = [f"📋 *Персонажи ({len(characters_cache)}):*\n"]
-        for c in sorted(characters_cache.values(), key=lambda x: x.get("name", "").lower()):
-            n = c.get("name", "?")
-            y = c.get("year", "")
-            line = f"• *{n}*"
-            if y:
-                line += f" [{y}]"
-            L.append(line)
-        msg = "\n".join(L)
-        if len(msg) > 4000:
-            parts, cur = [], ""
-            for line in msg.split("\n"):
-                if len(cur) + len(line) + 1 > 3900:
-                    parts.append(cur)
-                    cur = line + "\n"
-                else:
-                    cur += line + "\n"
-            if cur:
-                parts.append(cur)
-            for i, p in enumerate(parts):
-                if i == 0:
-                    await sm.edit_text(p, parse_mode="Markdown")
-                else:
-                    await update.message.reply_text(p, parse_mode="Markdown")
-        else:
-            await sm.edit_text(msg, parse_mode="Markdown")
-    except Exception as e:
-        logger.error(f"List error: {e}")
-        await sm.edit_text(f"⚠️ Ошибка: {str(e)[:200]}")
-
-
-async def atem_cmd(update, ctx):
-    sm = await update.message.reply_text("🔍 Загружаю активные темы...")
-    try:
-        topics = get_active_topics()
-        if not topics:
-            await sm.edit_text("❌ Не удалось загрузить активные темы.")
-            return
-        L = [f"🔥 *Активные темы ({len(topics)}):*\n"]
-        for i, t in enumerate(topics, 1):
-            line = f"{i}. [{t['title']}]({t['last_post_url']})"
-            if t["last_author"]:
-                line += f"\n   └ {t['last_post_time']} — {t['last_author']}"
-            else:
-                line += f"\n   └ {t['last_post_time']}"
-            L.append(line)
-        msg = "\n\n".join(L)
-        if len(msg) > 4000:
-            parts, cur = [], ""
-            for line in L:
-                if len(cur) + len(line) + 2 > 3900:
-                    parts.append(cur)
-                    cur = line + "\n\n"
-                else:
-                    cur += line + "\n\n"
-            if cur:
-                parts.append(cur)
-            for i, p in enumerate(parts):
-                if i == 0:
-                    await sm.edit_text(p, parse_mode="Markdown", disable_web_page_preview=True)
-                else:
-                    await update.message.reply_text(p, parse_mode="Markdown", disable_web_page_preview=True)
-        else:
-            await sm.edit_text(msg, parse_mode="Markdown", disable_web_page_preview=True)
-    except Exception as e:
-        logger.error(f"Atem error: {e}")
-        await sm.edit_text(f"⚠️ Ошибка: {str(e)[:200]}")
-
-
-async def help_cmd(update, ctx):
-    await update.message.reply_text(
-        "🤖 *Помощь*\n\n"
-        "/char `Имя` — найти анкету\n"
-        "/list — список персонажей\n"
-        "/atem — активные темы\n"
-        "/help — справка\n\n"
-        "📌 https://rwrd.rusff.me/viewforum.php?id=25",
-        parse_mode="Markdown",
-    )
-
-
-def main():
-    if not BOT_TOKEN:
-        raise SystemExit(
-            "Ошибка: не задан токен бота.\n"
-            "Получите токен у @BotFather и задайте его через переменную окружения:\n"
-            '    export BOT_TOKEN="123456:ABC-DEF..."'
-        )
-    logger.info("=" * 50)
-    logger.info("Запуск RWRD Character Bot...")
-    logger.info(f"Форум: {FORUM_URL}/viewforum.php?id={FORUM_ID}")
-    logger.info("=" * 50)
-    app = Application.builder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start_cmd))
-    app.add_handler(CommandHandler("help", help_cmd))
-    app.add_handler(CommandHandler("char", char_cmd))
-    app.add_handler(CommandHandler("Char", char_cmd))
-    app.add_handler(CommandHandler("CHAR", char_cmd))
-    app.add_handler(CommandHandler("list", list_cmd))
-    app.add_handler(CommandHandler("List", list_cmd))
-    app.add_handler(CommandHandler("atem", atem_cmd))
-    app.add_handler(CommandHandler("Atem", atem_cmd))
-    app.add_handler(CommandHandler("ATEM", atem_cmd))
-    logger.info("Бот запущен!")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
-
-
-if __name__ == "__main__":
-    main()
