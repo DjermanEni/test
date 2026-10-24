@@ -345,12 +345,9 @@ def fmt(ch):
 
 async def start_cmd(update, ctx):
     await update.message.reply_text(
-        "🤖 *Привет! Бот анкет персонажей Cyberpunk: Rewired.*\n\n"
-        "/char `Имя` — найти анкету\n"
-        "/list — список персонажей\n"
-        "/atem — активные темы\n"
-        "/help — помощь",
-        parse_mode="Markdown",
+        "Привет! Я бот-помощник участников CyberPunk Rewired. "
+        "Если ты не ковбой, я всё тебе расскажу: "
+        "Воспользуйся /help для получения списка команд"
     )
 
 
